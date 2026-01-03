@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GitHub RAG Agent</title>
+    <title>GitHub RAG Agent v3</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         :root {
@@ -102,10 +102,9 @@
         button:hover { background-color: #1d4ed8; }
         button:disabled { background-color: #93c5fd; cursor: not-allowed; }
 
-        /* --- 修复点1: 日志区域样式调整 (改为白底黑字) --- */
         .logs-area {
-            background: #f8fafc; /* 极浅的蓝灰色 */
-            color: #334155;      /* 深灰色文字 */
+            background: #f8fafc;
+            color: #334155;
             padding: 1rem;
             border: 1px solid var(--border-color);
             border-radius: 8px;
@@ -117,7 +116,6 @@
             line-height: 1.5;
         }
 
-        /* --- 修复点2: Markdown 报告区域样式 --- */
         .report-area {
             flex: 1;
             background: #fff;
@@ -127,7 +125,7 @@
             overflow-y: auto;
         }
 
-        /* Markdown 内容的特定样式 (让渲染后的 HTML 好看) */
+        /* Markdown 内容样式 */
         .markdown-body h1, .markdown-body h2, .markdown-body h3 { margin-top: 1.5em; margin-bottom: 0.5em; color: #111; }
         .markdown-body h1 { font-size: 1.4em; border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
         .markdown-body h2 { font-size: 1.2em; }
@@ -196,7 +194,7 @@
     <div class="header">
         <h1>
             <span>🧠 GitHub RAG Agent</span>
-            <span class="badge">v2.1 (Fixes)</span>
+            <span class="badge">v3.0 (Session Fix)</span>
         </h1>
     </div>
     
@@ -240,6 +238,23 @@
         let fullReportMarkdown = "";
 
         // ==========================================
+        // 核心修复：前端 Session 管理
+        // ==========================================
+        function getOrCreateSessionId() {
+            let sid = localStorage.getItem("rag_session_id");
+            if (!sid) {
+                // 生成简单的随机 ID (模拟 UUID)
+                sid = 'sess_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+                localStorage.setItem("rag_session_id", sid);
+            }
+            return sid;
+        }
+
+        // 初始化 Session ID
+        const SESSION_ID = getOrCreateSessionId();
+        console.log("Current Session ID:", SESSION_ID);
+
+        // ==========================================
         // 分析功能
         // ==========================================
         function startAnalysis() {
@@ -250,30 +265,28 @@
             const reportDiv = document.getElementById('report');
             const btnAnalyze = document.getElementById('btn-analyze');
             
-            // 重置状态
-            logDiv.innerHTML = "<div>[System] 正在初始化 Agent...</div>";
+            // 重置 UI
+            logDiv.innerHTML = `<div>[System] 🚀 初始化 Agent (Session: ${SESSION_ID.substr(-6)})...</div>`;
             reportDiv.innerHTML = "<div style='color:#666'>⏳ 正在生成报告...</div>";
-            fullReportMarkdown = ""; // 清空之前的 Markdown
+            fullReportMarkdown = ""; 
             
             btnAnalyze.disabled = true;
             btnAnalyze.textContent = "分析中...";
             toggleChat(false);
 
-            const eventSource = new EventSource(`${API_BASE}/analyze?url=${encodeURIComponent(url)}`);
+            // === 关键修复：通过 URL 传递 session_id ===
+            const eventSource = new EventSource(`${API_BASE}/analyze?url=${encodeURIComponent(url)}&session_id=${SESSION_ID}`);
 
             eventSource.onmessage = function(event) {
                 const data = JSON.parse(event.data);
                 
                 if (data.step === 'report_chunk') {
-                    // --- 修复关键点: 累积 Markdown 并实时渲染 HTML ---
                     fullReportMarkdown += data.chunk;
-                    // 使用 marked 解析
                     reportDiv.innerHTML = marked.parse(fullReportMarkdown);
-                    // 自动滚动
                     reportDiv.scrollTop = reportDiv.scrollHeight;
                 } 
                 else if (data.step === 'finish') {
-                    logAppend(`✅ ${data.message}`, "#10b981"); // 绿色
+                    logAppend(`✅ ${data.message}`, "#10b981"); 
                     eventSource.close();
                     btnAnalyze.disabled = false;
                     btnAnalyze.textContent = "重新分析";
@@ -281,13 +294,12 @@
                     addMsg("ai", "🎉 分析完成！你可以根据右侧的报告向我提问了。");
                 } 
                 else if (data.step === 'error') {
-                    logAppend(`❌ ${data.message}`, "#ef4444"); // 红色
+                    logAppend(`❌ ${data.message}`, "#ef4444"); 
                     eventSource.close();
                     btnAnalyze.disabled = false;
                     btnAnalyze.textContent = "开始分析";
                 } 
                 else {
-                    // 普通日志
                     logAppend(`👉 ${data.message}`);
                 }
             };
@@ -301,7 +313,6 @@
             };
         }
 
-        // 辅助函数：追加日志
         function logAppend(text, color = "inherit") {
             const logDiv = document.getElementById('logs');
             const div = document.createElement('div');
@@ -326,24 +337,25 @@
             input.disabled = true;
             btnChat.disabled = true;
             
-            // 创建一个临时的 loading 消息 ID
             const loadingId = addMsg("ai", "🤔 正在检索向量库并思考...");
 
             try {
+                // === 关键修复：通过 Body 传递 session_id ===
                 const res = await fetch(`${API_BASE}/chat`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ query: query })
+                    body: JSON.stringify({ 
+                        query: query,
+                        session_id: SESSION_ID // 必传参数
+                    })
                 });
                 
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 
-                // 移除 loading
                 document.getElementById(loadingId).remove();
 
-                // 渲染 AI 回复（支持简单的 Markdown，比如代码块）
-                let answerHtml = marked.parse(data.answer);
+                let answerHtml = marked.parse(data.answer || "无回答内容");
                 
                 if (data.sources && data.sources.length > 0) {
                     answerHtml += `<div class="source-tag">📚 参考文件: ${data.sources.join(", ")}</div>`;
@@ -363,7 +375,7 @@
         function addMsg(role, content, isHtml=false) {
             const history = document.getElementById('chat-history');
             const div = document.createElement('div');
-            div.className = `msg ${role} markdown-body`; // 加上 markdown-body 类以复用样式
+            div.className = `msg ${role} markdown-body`; 
             div.id = "msg-" + Date.now();
             
             if (isHtml) div.innerHTML = content;
