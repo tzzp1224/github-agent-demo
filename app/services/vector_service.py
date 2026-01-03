@@ -10,12 +10,14 @@ import time
 class VectorStore:
     def __init__(self, session_id: str):
         self.session_id = session_id
-        # 初始化 ChromaDB (内存模式)
         self.chroma_client = chromadb.Client(ChromaSettings(anonymized_telemetry=False))
-        # === 关键点：使用 session_id 区分 Collection ===
         self.collection_name = f"repo_{session_id}"
         
-        # Hybrid Search 组件 (内存级，随实例存在)
+        # === 新增：元数据存储 ===
+        self.repo_url = None       # 记住仓库地址，供 Chat 阶段下载新文件
+        self.indexed_files = set() # 记住已索引的文件，避免重复下载
+        
+        # Hybrid Search 组件
         self.bm25 = None
         self.doc_store = [] 
         
@@ -29,6 +31,8 @@ class VectorStore:
         self.collection = self.chroma_client.create_collection(name=self.collection_name)
         self.bm25 = None
         self.doc_store = []
+        self.repo_url = None
+        self.indexed_files = set()
         print(f"🧹 [Session: {self.session_id}] 数据库已重置")
 
     def embed_text(self, text):
@@ -52,8 +56,10 @@ class VectorStore:
         embeddings = []
         ids = []
         
-        # 1. 准备数据 (BM25 + Vector)
         for i, doc in enumerate(documents):
+            # 记录已索引的文件名
+            self.indexed_files.add(metadatas[i]['file'])
+            
             doc_id = f"{metadatas[i]['file']}_{len(self.doc_store) + i}"
             self.doc_store.append({
                 "id": doc_id,
@@ -66,18 +72,44 @@ class VectorStore:
                 embeddings.append(emb)
                 ids.append(doc_id)
 
-        # 2. 存入 Chroma
         if embeddings:
             self.collection.add(documents=documents, embeddings=embeddings, metadatas=metadatas, ids=ids)
         
-        # 3. 重建 BM25
+        # 重建 BM25
         tokenized_corpus = [self._tokenize(doc['content']) for doc in self.doc_store]
         self.bm25 = BM25Okapi(tokenized_corpus)
         
-        print(f"✅ [Session: {self.session_id}] 已索引 {len(documents)} 个片段")
+        print(f"✅ [Session: {self.session_id}] 增量索引完成，当前文档数: {len(self.doc_store)}")
 
+
+    # === 新增方法：按文件名强制检索 ===
+    def get_documents_by_file(self, file_path):
+        """
+        从内存 doc_store 中直接提取指定文件的所有切片，
+        并转换为标准格式（包含 top-level 'file' 键）。
+        """
+        # 1. 筛选原始文档
+        raw_docs = [
+            doc for doc in self.doc_store 
+            if doc['metadata']['file'] == file_path
+        ]
+        
+        # 2. 格式化转换 (Fix KeyError: 'file')
+        formatted_docs = []
+        for d in raw_docs:
+            formatted_docs.append({
+                "id": d['id'],
+                "content": d['content'],
+                "file": d['metadata']['file'], # <--- 关键修复：手动添加 file 键
+                "metadata": d['metadata'],
+                "score": 1.0 # 强制提取的视为满分
+            })
+            
+        # 3. 按行号排序
+        return sorted(formatted_docs, key=lambda x: x['metadata'].get('start_line', 0))
+    
     def search_hybrid(self, query, top_k=3):
-        # 1. 向量检索
+        # 1. 向量检索 (Vector Search)
         vector_results = []
         query_embedding = self.embed_text(query)
         if query_embedding:
@@ -90,7 +122,11 @@ class VectorStore:
                 metas = chroma_res['metadatas'][0]
                 for i in range(len(ids)):
                     vector_results.append({
-                        "id": ids[i], "content": docs[i], "file": metas[i]['file'], "score": 0
+                        "id": ids[i], 
+                        "content": docs[i], 
+                        "file": metas[i]['file'], 
+                        "metadata": metas[i],  # <--- 🚨【修复点1】必须加上这行
+                        "score": 0
                     })
 
         # 2. BM25 检索
@@ -104,10 +140,14 @@ class VectorStore:
                 if doc_scores[idx] > 0:
                     item = self.doc_store[idx]
                     bm25_results.append({
-                        "id": item["id"], "content": item["content"], "file": item["metadata"]["file"], "score": 0
+                        "id": item["id"], 
+                        "content": item["content"], 
+                        "file": item["metadata"]["file"], 
+                        "metadata": item["metadata"], # <--- 🚨【修复点2】必须加上这行
+                        "score": 0
                     })
 
-        # 3. 加权 RRF
+        # 3. Weighted RRF Fusion
         k = 60
         weight_vector = 1.0
         weight_bm25 = 0.3
@@ -126,11 +166,10 @@ class VectorStore:
         sorted_results = sorted(fused_scores.values(), key=lambda x: x['score'], reverse=True)
         return [res['item'] for res in sorted_results[:top_k]]
 
-# === 新增：会话管理器 ===
 class VectorStoreManager:
     def __init__(self):
-        self.stores = {} # session_id -> VectorStore
-        self.last_access = {} # 用于简单的清理策略 (可选)
+        self.stores = {} 
+        self.last_access = {} 
 
     def get_store(self, session_id: str) -> VectorStore:
         if session_id not in self.stores:
@@ -139,5 +178,4 @@ class VectorStoreManager:
         self.last_access[session_id] = time.time()
         return self.stores[session_id]
 
-# 全局管理器单例
 store_manager = VectorStoreManager()

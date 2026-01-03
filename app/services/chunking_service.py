@@ -2,84 +2,120 @@
 import ast
 
 class PythonASTChunker:
-    def __init__(self, min_chunk_size=50):
+    def __init__(self, min_chunk_size=50, max_chunk_size=2000):
+        """
+        :param min_chunk_size: 最小字符数，太小的代码段忽略
+        :param max_chunk_size: 最大字符数 (约 500-800 Token)，超过此长度的 Class 会被强制拆解
+        """
         self.min_chunk_size = min_chunk_size
+        self.max_chunk_size = max_chunk_size
 
-    def chunk_file(self, file_content: str, filename: str):
-        """
-        基于 AST 解析，支持类方法的细粒度提取。
-        """
+    def chunk_file(self, content: str, file_path: str):
+        if not content:
+            return []
+        
         chunks = []
         try:
-            tree = ast.parse(file_content)
+            tree = ast.parse(content)
         except SyntaxError:
-            return [{"content": file_content[:8000], "metadata": {"file": filename, "type": "raw"}}]
+            # 如果解析失败（比如非 Python 文件），退化为简单的文本分块
+            return self._fallback_chunking(content, file_path)
 
-        lines = file_content.splitlines()
-
-        # 辅助函数：提取节点源码
-        def get_node_source(node):
-            start = node.lineno - 1
-            end = node.end_lineno
-            return "\n".join(lines[start:end]), start + 1, end
-
-        # 遍历顶层节点
+        # 1. 遍历顶层节点
         for node in tree.body:
-            # 1. 如果是函数，直接提取
+            # === 策略 A: 处理类 (ClassDef) ===
+            if isinstance(node, ast.ClassDef):
+                class_code = ast.get_source_segment(content, node)
+                if not class_code: continue
+
+                # 判断：如果类比较小，直接作为一个整体
+                if len(class_code) <= self.max_chunk_size:
+                    chunks.append({
+                        "content": class_code,
+                        "metadata": {
+                            "file": file_path,
+                            "type": "class",
+                            "name": node.name,
+                            "start_line": node.lineno,
+                            "class": node.name 
+                        }
+                    })
+                else:
+                    # 如果类太大，拆解为方法，但保留类名作为上下文
+                    chunks.extend(self._chunk_large_class(node, content, file_path))
+
+            # === 策略 B: 处理独立函数 (FunctionDef) ===
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                func_code = ast.get_source_segment(content, node)
+                if func_code and len(func_code) >= self.min_chunk_size:
+                    chunks.append({
+                        "content": func_code,
+                        "metadata": {
+                            "file": file_path,
+                            "type": "function",
+                            "name": node.name,
+                            "start_line": node.lineno,
+                            "class": "" # 顶层函数无类
+                        }
+                    })
+
+            # === 策略 C: 其他顶层代码 (如全局变量定义) ===
+            # 简单略过，或者你可以选择收集起来做一个 "Global Context" chunk
+            # 为了保持向量库干净，这里暂时略过，除非它带有大段注释
+        
+        # 如果文件里全是散代码（如 __init__.py 或 脚本），没有函数/类
+        if not chunks and len(content) > 0:
+             return self._fallback_chunking(content, file_path)
+
+        return chunks
+
+    def _chunk_large_class(self, class_node, content, file_path):
+        """处理超大类：拆解 Method，但注入 Class 上下文"""
+        chunks = []
+        class_name = class_node.name
+        # 提取类的 Docstring
+        docstring = ast.get_docstring(class_node) or "No docstring"
+        
+        # 构造一个 Context Header，拼接到每个方法前面
+        # 这样即使按方法切，LLM 也能知道它属于哪个类，以及类的作用
+        context_header = f"class {class_name}:\n    \"\"\"{docstring}\"\"\"\n    # ... (Parent Context)\n"
+
+        for node in class_node.body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                source, start, end = get_node_source(node)
-                if len(source) < self.min_chunk_size: continue
+                method_code = ast.get_source_segment(content, node)
+                if not method_code: continue
+                
+                # 拼接上下文
+                full_chunk_content = context_header + "\n" + method_code
                 
                 chunks.append({
-                    "content": source,
+                    "content": full_chunk_content, # <--- 关键：带上了类的上下文
                     "metadata": {
-                        "file": filename,
+                        "file": file_path,
+                        "type": "method",
                         "name": node.name,
-                        "type": "function",
-                        "class": None, # 顶层函数无类名
-                        "start_line": start,
-                        "end_line": end
+                        "start_line": node.lineno,
+                        "class": class_name
                     }
                 })
+        return chunks
 
-            # 2. 如果是类，深入提取方法
-            elif isinstance(node, ast.ClassDef):
-                class_name = node.name
-                
-                # 可选：提取类定义的“头信息”（Docstring + 类变量），作为单独的 Chunk
-                # 这样即使不搜方法，搜类本身也能搜到
-                class_header_end = node.lineno # 简单处理，只取定义行附近
-                # 尝试找 docstring
-                if ast.get_docstring(node):
-                    pass # 实际项目中可以专门处理 docstring
-
-                # 遍历类体内的节点
-                for item in node.body:
-                    if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        method_source, start, end = get_node_source(item)
-                        if len(method_source) < self.min_chunk_size: continue
-
-                        # === 关键优化：注入上下文 ===
-                        # 在内容前加上类名注释，帮助 Embedding 区分同名方法（如不同类的 run 方法）
-                        enriched_content = f"# Class: {class_name}\n{method_source}"
-
-                        chunks.append({
-                            "content": enriched_content,
-                            "metadata": {
-                                "file": filename,
-                                "name": item.name,
-                                "type": "method",
-                                "class": class_name, # 记录所属类
-                                "start_line": start,
-                                "end_line": end
-                            }
-                        })
-
-        # 兜底：如果没提取到任何有意义的块（全是赋值语句等），且文件不为空
-        if not chunks and file_content.strip():
-             chunks.append({
-                 "content": file_content[:2000], 
-                 "metadata": {"file": filename, "type": "global_script", "name": "script"}
-             })
-             
+    def _fallback_chunking(self, content, file_path):
+        """兜底策略：按固定长度切分"""
+        chunks = []
+        lines = content.split('\n')
+        # 简单粗暴：每 100 行切一下
+        chunk_size = 100
+        for i in range(0, len(lines), chunk_size):
+            chunk_content = "\n".join(lines[i:i+chunk_size])
+            chunks.append({
+                "content": chunk_content,
+                "metadata": {
+                    "file": file_path,
+                    "type": "text_chunk",
+                    "name": f"chunk_{i}",
+                    "start_line": i+1,
+                    "class": ""
+                }
+            })
         return chunks

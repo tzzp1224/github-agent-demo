@@ -3,398 +3,378 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GitHub RAG Agent v3</title>
+    <title>GitHub RAG Agent</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         :root {
+            /* === 配色微调 (清新风格) === */
             --primary-color: #2563eb;
-            --bg-color: #f3f4f6;
-            --card-bg: #ffffff;
-            --text-main: #1f2937;
-            --text-secondary: #4b5563;
-            --border-color: #e5e7eb;
+            --bg-color: #f8fafc;
+            --panel-bg: #ffffff;
+            --border-color: #e2e8f0;
+            --text-primary: #334155;
+            --text-secondary: #64748b;
+            
+            /* === 聊天气泡新配色 === */
+            --chat-user-bg: #e0f2fe;   /* 用户：清新的浅天蓝 */
+            --chat-user-text: #0c4a6e; /* 用户：深蓝文字 */
+            --chat-ai-bg: #ffffff;     /* AI：纯白底 */
+            
+            /* === 代码新配色 === */
+            --code-inline-color: #0284c7; /* 行内代码：清新的湖蓝色 */
+            --code-inline-bg: #f0f9ff;    /* 行内代码：极淡的蓝背景 */
+            --code-block-bg: #f1f5f9;     /* 代码块：清爽的灰白背景 */
+            --code-block-border: #cbd5e1;
+
+            /* === 字体设置 === */
+            --base-font-size: 16px;
         }
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        body, html {
+            margin: 0; padding: 0; height: 100%; width: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             background-color: var(--bg-color);
-            color: var(--text-main);
-            margin: 0;
-            padding: 2rem;
-            height: 100vh;
-            box-sizing: border-box;
+            color: var(--text-primary);
+            font-size: var(--base-font-size);
+            overflow: hidden; 
         }
 
+        /* 顶部导航 */
         .header {
-            margin-bottom: 2rem;
+            height: 60px;
+            background: var(--panel-bg);
             border-bottom: 1px solid var(--border-color);
-            padding-bottom: 1rem;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 24px; flex-shrink: 0;
         }
+        .header h1 { margin: 0; font-size: 1.25rem; font-weight: 600; display: flex; align-items: center; gap: 12px; color: var(--text-primary); }
+        .badge { background: var(--primary-color); color: white; font-size: 0.8rem; padding: 4px 10px; border-radius: 20px; font-weight: 500; }
 
-        .header h1 {
-            margin: 0;
-            font-size: 1.5rem;
-            color: var(--text-main);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
+        /* 主布局 */
+        .main-container { display: flex; height: calc(100vh - 60px); width: 100%; }
+        .left-panel { width: 50%; min-width: 320px; background: var(--panel-bg); display: flex; flex-direction: column; border-right: 1px solid var(--border-color); }
+        .right-panel { flex: 1; min-width: 320px; background: var(--bg-color); display: flex; flex-direction: column; }
 
-        .badge {
-            background: var(--primary-color);
-            color: white;
-            font-size: 0.75rem;
-            padding: 2px 8px;
-            border-radius: 12px;
-            vertical-align: middle;
-            font-weight: normal;
-        }
+        /* 拖拽条 */
+        .resizer { width: 10px; background: #f1f5f9; cursor: col-resize; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border-left: 1px solid var(--border-color); border-right: 1px solid var(--border-color); transition: background 0.2s; }
+        .resizer:hover, .resizer.active { background: #e2e8f0; }
+        .resizer::after { content: "⋮"; color: #94a3b8; font-size: 14px; pointer-events: none; }
 
-        .container {
-            display: flex;
-            gap: 20px;
-            height: calc(100vh - 120px);
-        }
+        .panel-content { padding: 24px; overflow-y: auto; flex: 1; }
 
-        .panel {
-            background: var(--card-bg);
-            border-radius: 12px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            padding: 1.5rem;
-            display: flex;
-            flex-direction: column;
-            border: 1px solid var(--border-color);
-        }
-
-        .left-panel { flex: 3; min-width: 0; }
-        .right-panel { flex: 2; }
-
-        .input-group {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 1rem;
-        }
+        /* 输入栏 */
+        .input-bar { padding: 20px; border-bottom: 1px solid var(--border-color); background: #ffffff; display: flex; gap: 12px; }
+        .chat-input-bar { padding: 20px; border-top: 1px solid var(--border-color); background: #ffffff; display: flex; gap: 12px; }
 
         input[type="text"] {
-            flex: 1;
-            padding: 10px 15px;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            font-size: 0.95rem;
-            outline: none;
-            transition: border-color 0.2s;
+            flex: 1; padding: 12px 16px; border: 1px solid var(--border-color); border-radius: 8px; outline: none; font-size: 16px; transition: all 0.2s;
+            background: #f8fafc;
         }
-
-        input[type="text"]:focus { border-color: var(--primary-color); }
+        input[type="text"]:focus { border-color: var(--primary-color); background: #fff; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
 
         button {
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 500;
-            transition: background 0.2s;
-            white-space: nowrap;
+            background: var(--primary-color); color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: 500; font-size: 16px; transition: background 0.2s; white-space: nowrap;
         }
+        button:hover { background: #1d4ed8; }
+        button:disabled { background: #93c5fd; cursor: not-allowed; }
 
-        button:hover { background-color: #1d4ed8; }
-        button:disabled { background-color: #93c5fd; cursor: not-allowed; }
-
+        /* 日志区域 */
         .logs-area {
-            background: #f8fafc;
-            color: #334155;
-            padding: 1rem;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            height: 140px;
-            overflow-y: auto;
-            font-family: "Menlo", "Monaco", "Courier New", monospace;
-            font-size: 0.85rem;
-            margin-bottom: 1rem;
-            line-height: 1.5;
-        }
-
-        .report-area {
-            flex: 1;
-            background: #fff;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 1.5rem;
-            overflow-y: auto;
+            background: #f1f5f9; color: #475569; padding: 16px; border-radius: 8px; height: 140px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 15px; margin-bottom: 20px; line-height: 1.6; flex-shrink: 0; border: 1px solid var(--border-color);
         }
 
         /* Markdown 内容样式 */
-        .markdown-body h1, .markdown-body h2, .markdown-body h3 { margin-top: 1.5em; margin-bottom: 0.5em; color: #111; }
-        .markdown-body h1 { font-size: 1.4em; border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
-        .markdown-body h2 { font-size: 1.2em; }
-        .markdown-body p { margin-bottom: 1em; line-height: 1.6; }
-        .markdown-body ul, .markdown-body ol { padding-left: 1.5em; margin-bottom: 1em; }
-        .markdown-body code { background: #f3f4f6; padding: 2px 5px; border-radius: 4px; font-family: monospace; font-size: 0.9em; color: #d63384; }
-        .markdown-body pre { background: #f8f9fa; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid #eee; }
-        .markdown-body pre code { background: none; color: #333; padding: 0; }
-        .markdown-body blockquote { border-left: 4px solid #dfe2e5; color: #6a737d; padding-left: 1em; margin: 1em 0; }
-
-        /* 聊天区域 */
-        .chat-history {
-            flex: 1;
-            overflow-y: auto;
-            padding: 10px;
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-            margin-bottom: 1rem;
-            background: #f9fafb;
-            border-radius: 8px;
-            border: 1px solid var(--border-color);
-        }
-
-        .msg {
-            max-width: 85%;
-            padding: 12px 16px;
-            border-radius: 12px;
-            font-size: 0.9rem;
-            line-height: 1.5;
-            position: relative;
-            word-wrap: break-word;
-        }
-
-        .msg.user {
-            align-self: flex-end;
-            background-color: var(--primary-color);
-            color: white;
-            border-bottom-right-radius: 2px;
-        }
-
-        .msg.ai {
-            align-self: flex-start;
-            background-color: #ffffff;
-            color: var(--text-main);
-            border: 1px solid var(--border-color);
-            border-bottom-left-radius: 2px;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        }
-
-        .source-tag {
-            display: block;
-            margin-top: 8px;
-            font-size: 0.75rem;
-            color: #666;
-            background: #f3f4f6;
-            padding: 4px 8px;
+        .markdown-body { font-size: 16px; line-height: 1.75; color: var(--text-primary); }
+        .markdown-body h1, .markdown-body h2, .markdown-body h3 { margin-top: 1.5em; color: #1e293b; font-weight: 600; }
+        
+        .markdown-body code {
+            background: var(--code-inline-bg);
+            color: var(--code-inline-color);
+            padding: 2px 6px;
             border-radius: 4px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.9em;
+            border: 1px solid #bae6fd;
         }
 
-        .chat-input-area { display: flex; gap: 10px; }
+        .markdown-body pre {
+            background: var(--code-block-bg);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid var(--code-block-border);
+            border-left: 4px solid var(--primary-color);
+            overflow-x: auto;
+            margin: 1.5em 0;
+        }
+        .markdown-body pre code { background: none; color: inherit; padding: 0; border: none; font-size: 14px; }
+
+        /* 聊天气泡样式 */
+        .chat-container { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 24px; }
+        
+        .msg { 
+            max-width: 85%; 
+            padding: 14px 20px; 
+            border-radius: 16px; 
+            font-size: 16px; position: relative; word-wrap: break-word; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            line-height: 1.6;
+        }
+        
+        .msg.user { 
+            align-self: flex-end; 
+            background: var(--chat-user-bg); 
+            color: var(--chat-user-text);
+            border: 1px solid #bae6fd;
+            border-bottom-right-radius: 4px;
+        }
+        
+        .msg.ai { 
+            align-self: flex-start; 
+            background: var(--chat-ai-bg);
+            border: 1px solid var(--border-color);
+            border-bottom-left-radius: 4px;
+        }
+
+        .source-tag { font-size: 13px; color: var(--text-secondary); margin-top: 12px; padding-top: 12px; border-top: 1px solid #f1f5f9; }
+
+        @media (max-width: 768px) {
+            .main-container { flex-direction: column; overflow-y: auto; }
+            .left-panel, .right-panel { width: 100% !important; height: auto; min-height: 50vh; }
+            .resizer { display: none; }
+            .panel-content { min-height: 300px; }
+            body { overflow: auto; }
+            .header { padding: 0 16px; }
+        }
     </style>
 </head>
 <body>
 
-    <div class="header">
-        <h1>
-            <span>🧠 GitHub RAG Agent</span>
-            <span class="badge">v3.0 (Session Fix)</span>
-        </h1>
-    </div>
+<div class="header">
+    <h1><span>🧠</span> GitHub RAG Agent <span class="badge">v4.3 Fix</span></h1>
+    <div style="font-size: 14px; color: var(--text-secondary);">Session: <span id="sessionIdDisplay">...</span></div>
+</div>
+
+<div class="main-container" id="mainContainer">
     
-    <div class="container">
-        <div class="panel left-panel">
-            <div class="input-group">
-                <input type="text" id="repoUrl" value="https://github.com/fastapi/fastapi" placeholder="输入 GitHub 仓库 URL...">
-                <button onclick="startAnalysis()" id="btn-analyze">开始分析</button>
-            </div>
-            
+    <div class="left-panel" id="leftPanel">
+        <div class="input-bar">
+            <input type="text" id="repoUrl" value="https://github.com/fastapi/fastapi" placeholder="输入 GitHub 仓库 URL...">
+            <button onclick="startAnalysis()" id="btn-analyze">开始分析</button>
+        </div>
+        
+        <div class="panel-content">
             <div class="logs-area" id="logs">
                 <div>[System] 准备就绪，等待输入...</div>
             </div>
-            
-            <div class="report-area markdown-body" id="report">
-                <div style="color: #999; text-align: center; margin-top: 40px;">
-                    🤖 分析报告将在此处生成...<br>
-                    (包含项目目标、技术栈与架构分析)
+            <div class="markdown-body" id="report">
+                <div style="text-align: center; color: #94a3b8; margin-top: 80px; font-size: 18px;">
+                    📊 项目架构报告将在此处生成
                 </div>
-            </div>
-        </div>
-
-        <div class="panel right-panel">
-            <div class="chat-history" id="chat-history">
-                <div class="msg ai">👋 你好！我是你的代码架构助手。请先在左侧输入仓库地址并点击“开始分析”，让我先熟悉一下代码。</div>
-            </div>
-            <div class="chat-input-area">
-                <input type="text" id="chatInput" placeholder="例如：鉴权逻辑在哪个文件？" onkeypress="handleKeyPress(event)" disabled>
-                <button onclick="sendChat()" id="btn-chat" disabled>发送</button>
             </div>
         </div>
     </div>
 
-    <script>
-        // ==========================================
-        // 配置
-        // ==========================================
-        const API_BASE = "http://127.0.0.1:8000";
-        
-        // 用于存储完整的 Markdown 文本
-        let fullReportMarkdown = "";
+    <div class="resizer" id="resizer"></div>
 
-        // ==========================================
-        // 核心修复：前端 Session 管理
-        // ==========================================
-        function getOrCreateSessionId() {
-            let sid = localStorage.getItem("rag_session_id");
-            if (!sid) {
-                // 生成简单的随机 ID (模拟 UUID)
-                sid = 'sess_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
-                localStorage.setItem("rag_session_id", sid);
-            }
-            return sid;
+    <div class="right-panel" id="rightPanel">
+        <div class="chat-container" id="chat-history">
+            <div class="msg ai">👋 你好！分析完成后，可以问我任何关于代码实现细节的问题。</div>
+        </div>
+        <div class="chat-input-bar">
+            <input type="text" id="chatInput" placeholder="例如：generate_unique_id 是怎么实现的？" onkeypress="handleKeyPress(event)" disabled>
+            <button onclick="sendChat()" id="btn-chat" disabled>发送</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const API_BASE = "http://127.0.0.1:8000";
+    let fullReportMarkdown = "";
+
+    function getOrCreateSessionId() {
+        let sid = localStorage.getItem("rag_session_id");
+        if (!sid) {
+            sid = 'sess_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+            localStorage.setItem("rag_session_id", sid);
         }
+        return sid;
+    }
+    const SESSION_ID = getOrCreateSessionId();
+    document.getElementById('sessionIdDisplay').innerText = SESSION_ID.substr(-6);
 
-        // 初始化 Session ID
-        const SESSION_ID = getOrCreateSessionId();
-        console.log("Current Session ID:", SESSION_ID);
+    // 拖拽逻辑
+    const resizer = document.getElementById('resizer');
+    const leftPanel = document.getElementById('leftPanel');
+    const container = document.getElementById('mainContainer');
+    let isResizing = false;
 
-        // ==========================================
-        // 分析功能
-        // ==========================================
-        function startAnalysis() {
-            const url = document.getElementById('repoUrl').value.trim();
-            if (!url) { alert("请输入有效的 GitHub URL"); return; }
+    resizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        resizer.classList.add('active');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    });
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+        const newLeftWidth = (e.clientX / container.offsetWidth) * 100;
+        if (newLeftWidth > 20 && newLeftWidth < 80) leftPanel.style.width = `${newLeftWidth}%`;
+    });
+    document.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            resizer.classList.remove('active');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        }
+    });
 
-            const logDiv = document.getElementById('logs');
-            const reportDiv = document.getElementById('report');
-            const btnAnalyze = document.getElementById('btn-analyze');
-            
-            // 重置 UI
-            logDiv.innerHTML = `<div>[System] 🚀 初始化 Agent (Session: ${SESSION_ID.substr(-6)})...</div>`;
-            reportDiv.innerHTML = "<div style='color:#666'>⏳ 正在生成报告...</div>";
-            fullReportMarkdown = ""; 
-            
-            btnAnalyze.disabled = true;
-            btnAnalyze.textContent = "分析中...";
-            toggleChat(false);
+    // 业务逻辑
+    function startAnalysis() {
+        const url = document.getElementById('repoUrl').value.trim();
+        if (!url) { alert("请输入 URL"); return; }
+        const logDiv = document.getElementById('logs');
+        const reportDiv = document.getElementById('report');
+        const btnAnalyze = document.getElementById('btn-analyze');
+        
+        logDiv.innerHTML = `<div>[System] 🚀 初始化 Agent (Session: ${SESSION_ID.substr(-6)})...</div>`;
+        reportDiv.innerHTML = "<div style='color:#94a3b8; text-align:center; margin-top:40px'>⏳ 正在深入分析代码架构...</div>";
+        fullReportMarkdown = "";
+        
+        btnAnalyze.disabled = true;
+        btnAnalyze.textContent = "分析中...";
+        toggleChat(false);
 
-            // === 关键修复：通过 URL 传递 session_id ===
-            const eventSource = new EventSource(`${API_BASE}/analyze?url=${encodeURIComponent(url)}&session_id=${SESSION_ID}`);
-
-            eventSource.onmessage = function(event) {
-                const data = JSON.parse(event.data);
-                
-                if (data.step === 'report_chunk') {
-                    fullReportMarkdown += data.chunk;
-                    reportDiv.innerHTML = marked.parse(fullReportMarkdown);
-                    reportDiv.scrollTop = reportDiv.scrollHeight;
-                } 
-                else if (data.step === 'finish') {
-                    logAppend(`✅ ${data.message}`, "#10b981"); 
-                    eventSource.close();
-                    btnAnalyze.disabled = false;
-                    btnAnalyze.textContent = "重新分析";
-                    toggleChat(true);
-                    addMsg("ai", "🎉 分析完成！你可以根据右侧的报告向我提问了。");
-                } 
-                else if (data.step === 'error') {
-                    logAppend(`❌ ${data.message}`, "#ef4444"); 
-                    eventSource.close();
-                    btnAnalyze.disabled = false;
-                    btnAnalyze.textContent = "开始分析";
-                } 
-                else {
-                    logAppend(`👉 ${data.message}`);
-                }
-            };
-
-            eventSource.onerror = function(err) {
-                console.error("SSE Error:", err);
-                logAppend("❌ 连接中断，请检查后端服务。", "#ef4444");
+        const eventSource = new EventSource(`${API_BASE}/analyze?url=${encodeURIComponent(url)}&session_id=${SESSION_ID}`);
+        eventSource.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            if (data.step === 'report_chunk') {
+                fullReportMarkdown += data.chunk;
+                reportDiv.innerHTML = marked.parse(fullReportMarkdown);
+                const panelContent = reportDiv.parentElement;
+                panelContent.scrollTop = panelContent.scrollHeight;
+            } else if (data.step === 'finish') {
+                logAppend(`✅ ${data.message}`, "#15803d"); 
+                eventSource.close();
+                btnAnalyze.disabled = false;
+                btnAnalyze.textContent = "重新分析";
+                toggleChat(true);
+                addMsg("ai", "🎉 分析完成！你可以提问了。");
+            } else if (data.step === 'error') {
+                logAppend(`❌ ${data.message}`, "#b91c1c"); 
                 eventSource.close();
                 btnAnalyze.disabled = false;
                 btnAnalyze.textContent = "开始分析";
-            };
-        }
-
-        function logAppend(text, color = "inherit") {
-            const logDiv = document.getElementById('logs');
-            const div = document.createElement('div');
-            div.textContent = text;
-            div.style.color = color;
-            logDiv.appendChild(div);
-            logDiv.scrollTop = logDiv.scrollHeight;
-        }
-
-        // ==========================================
-        // 聊天功能
-        // ==========================================
-        async function sendChat() {
-            const input = document.getElementById('chatInput');
-            const query = input.value.trim();
-            if (!query) return;
-
-            addMsg("user", query);
-            input.value = "";
-            
-            const btnChat = document.getElementById('btn-chat');
-            input.disabled = true;
-            btnChat.disabled = true;
-            
-            const loadingId = addMsg("ai", "🤔 正在检索向量库并思考...");
-
-            try {
-                // === 关键修复：通过 Body 传递 session_id ===
-                const res = await fetch(`${API_BASE}/chat`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ 
-                        query: query,
-                        session_id: SESSION_ID // 必传参数
-                    })
-                });
-                
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-                
-                document.getElementById(loadingId).remove();
-
-                let answerHtml = marked.parse(data.answer || "无回答内容");
-                
-                if (data.sources && data.sources.length > 0) {
-                    answerHtml += `<div class="source-tag">📚 参考文件: ${data.sources.join(", ")}</div>`;
-                }
-                addMsg("ai", answerHtml, true);
-
-            } catch (err) {
-                document.getElementById(loadingId).remove();
-                addMsg("ai", `❌ 请求失败: ${err.message}`);
-            } finally {
-                input.disabled = false;
-                btnChat.disabled = false;
-                input.focus();
+            } else {
+                logAppend(`👉 ${data.message}`);
             }
-        }
+        };
+        eventSource.onerror = function(err) {
+            logAppend("❌ 连接断开", "#b91c1c");
+            eventSource.close();
+            btnAnalyze.disabled = false;
+            btnAnalyze.textContent = "开始分析";
+        };
+    }
 
-        function addMsg(role, content, isHtml=false) {
-            const history = document.getElementById('chat-history');
-            const div = document.createElement('div');
-            div.className = `msg ${role} markdown-body`; 
-            div.id = "msg-" + Date.now();
+    async function sendChat() {
+        const input = document.getElementById('chatInput');
+        const query = input.value.trim();
+        if (!query) return;
+
+        // 1. 生成用户气泡 (ID 不会冲突)
+        addMsg("user", query);
+        input.value = "";
+        
+        const btnChat = document.getElementById('btn-chat');
+        input.disabled = true;
+        btnChat.disabled = true;
+        
+        // 2. 生成 AI 气泡 (延迟 10ms 确保 ID 绝对不同)
+        let msgId;
+        setTimeout(() => {
+            msgId = addMsg("ai", "...");
+        }, 10);
+        
+        try {
+            const res = await fetch(`${API_BASE}/chat`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ query: query, session_id: SESSION_ID })
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
             
-            if (isHtml) div.innerHTML = content;
-            else div.textContent = content;
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let fullText = "";
             
-            history.appendChild(div);
-            history.scrollTop = history.scrollHeight;
-            return div.id;
-        }
+            // 确保 msgId 已经生成后再开始更新 DOM
+            const msgDiv = await waitForElement(() => document.getElementById(msgId));
 
-        function toggleChat(enabled) {
-            document.getElementById('chatInput').disabled = !enabled;
-            document.getElementById('btn-chat').disabled = !enabled;
-            document.getElementById('chatInput').placeholder = enabled ? "请输入你的问题..." : "请先等待分析完成...";
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                const chunk = decoder.decode(value, { stream: true });
+                fullText += chunk;
+                msgDiv.innerHTML = marked.parse(fullText);
+                const history = document.getElementById('chat-history');
+                history.scrollTop = history.scrollHeight;
+            }
+        } catch (err) {
+            // 如果出错时 msgId 还没生成 (极罕见)，就手动生成一个
+            if (!msgId) msgId = addMsg("ai", "");
+            const div = document.getElementById(msgId);
+            if(div) div.innerHTML += `<br><span style="color:red">❌ Error: ${err.message}</span>`;
+        } finally {
+            input.disabled = false;
+            btnChat.disabled = false;
+            input.focus();
         }
+    }
 
-        function handleKeyPress(e) {
-            if (e.key === 'Enter') sendChat();
-        }
-    </script>
+    // === 辅助工具: 等待 DOM 元素生成 ===
+    function waitForElement(getter, timeout=2000) {
+        return new Promise((resolve, reject) => {
+            const start = Date.now();
+            const check = () => {
+                const el = getter();
+                if (el) resolve(el);
+                else if (Date.now() - start > timeout) reject(new Error("Timeout waiting for message bubble"));
+                else requestAnimationFrame(check);
+            };
+            check();
+        });
+    }
+
+    function logAppend(text, color = "inherit") {
+        const div = document.createElement('div');
+        div.textContent = text;
+        div.style.color = color;
+        const container = document.getElementById('logs');
+        container.appendChild(div);
+        container.scrollTop = container.scrollHeight;
+    }
+
+    // === 核心修复: 加上随机数防止 ID 冲突 ===
+    function addMsg(role, content) {
+        const history = document.getElementById('chat-history');
+        const div = document.createElement('div');
+        div.className = `msg ${role} markdown-body`;
+        // ID = 时间戳 + 随机数 (彻底解决冲突)
+        div.id = "msg-" + Date.now() + "-" + Math.random().toString(36).substr(2, 9);
+        div.innerHTML = marked.parse(content);
+        history.appendChild(div);
+        history.scrollTop = history.scrollHeight;
+        return div.id;
+    }
+
+    function toggleChat(enabled) {
+        document.getElementById('chatInput').disabled = !enabled;
+        document.getElementById('btn-chat').disabled = !enabled;
+        document.getElementById('chatInput').placeholder = enabled ? "请输入你的问题..." : "等待分析完成...";
+    }
+
+    function handleKeyPress(e) { if (e.key === 'Enter') sendChat(); }
+</script>
+
 </body>
 </html>

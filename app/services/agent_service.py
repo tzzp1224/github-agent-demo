@@ -16,28 +16,15 @@ def generate_smart_file_list(file_list, max_token_limit=1000):
     2. 如果文件总数较少 (< 300)，直接返回全量列表。
     3. 如果文件很多，过滤掉非核心后缀，且仅保留前 N 个。
     """
-    # 1. 定义核心文件类型
     core_extensions = ('.py', '.js', '.ts', '.go', '.java', '.cpp', '.h', '.rs', '.md', '.json', '.yml', '.yaml', 'Dockerfile')
-    
-    # 2. 必须包含的文件 (README)
     priority_files = [f for f in file_list if f.lower().endswith("readme.md")]
-    
-    # 3. 过滤出代码文件
     code_files = [f for f in file_list if f.endswith(core_extensions) and f not in priority_files]
-    
-    # 4. 判断规模
     total_files_count = len(file_list)
     
-    # 如果仓库很小（例如 FastAPI 只有几百个文件，可以直接全量展示核心文件）
     if total_files_count < 300:
-        # 将 priority 放在最前面
         final_list = priority_files + code_files
-        # 简单截断防止极端情况，但 300 个文件名通常不会超 Token
         return "\n".join(final_list[:500])
-    
-    # 如果仓库很大（例如 Linux Kernel 级别，或者 node_modules 没过滤干净）
     else:
-        # 策略：只保留 priority + 核心代码的前 400 个 + 提示信息
         truncated_list = priority_files + code_files[:400]
         remaining = len(code_files) - 400
         result = "\n".join(truncated_list)
@@ -56,7 +43,12 @@ async def agent_stream(repo_url: str, session_id: str):
     try:
         # 1. 初始化资源
         vector_db = store_manager.get_store(session_id)
-        vector_db.reset_collection()
+        
+        # === 核心修复点：先 Reset，再赋值 URL ===
+        # 之前的顺序反了，导致 reset 把 url 清空了
+        vector_db.reset_collection() 
+        vector_db.repo_url = repo_url  # <--- 必须放在 reset 之后！
+        
         chunker = PythonASTChunker(min_chunk_size=50)
 
         # 2. 获取文件树
@@ -67,7 +59,6 @@ async def agent_stream(repo_url: str, session_id: str):
 
         yield json.dumps({"step": "fetched", "message": f"📦 发现 {len(file_list)} 个文件，正在构建文件视图..."})
         
-        # === 升级点 1: 生成智能文件列表 ===
         file_tree_str = generate_smart_file_list(file_list)
         
         # 3. ReAct 循环配置
@@ -75,7 +66,6 @@ async def agent_stream(repo_url: str, session_id: str):
         visited_files = set()
         context_summary = ""
         
-        # 查找 README 是否存在（用于后续强制读取）
         readme_file = next((f for f in file_list if f.lower().endswith("readme.md")), None)
 
         for round_idx in range(MAX_ROUNDS):
@@ -120,17 +110,15 @@ async def agent_stream(repo_url: str, session_id: str):
                 text = response.text.replace("```json", "").replace("```", "").strip()
                 target_files = json.loads(text)
             except:
-                pass # 解析失败则为空列表
+                pass
 
-            # 过滤无效文件
             valid_files = [f for f in target_files if f in file_list and f not in visited_files]
 
-            # === 升级点 2: 第一轮强制读取 README (如果 LLM 没选) ===
+            # 第一轮强制读取 README
             if round_idx == 0 and readme_file and readme_file not in valid_files:
                 valid_files.insert(0, readme_file)
                 yield json.dumps({"step": "plan", "message": f"📘 [策略] 强制追加阅读: {readme_file}"})
 
-            # 如果没选出文件，且不是强制加了 README
             if not valid_files:
                 yield json.dumps({"step": "plan", "message": f"🛑 [Round {round_idx+1}] 思考完毕，停止探索。"})
                 break
@@ -148,8 +136,7 @@ async def agent_stream(repo_url: str, session_id: str):
                 
                 visited_files.add(file_path)
                 
-                # 提取 Preview 用于 Prompt 上下文
-                # 如果是 Markdown，提取标题；如果是代码，提取 import
+                # 提取 Preview
                 lines = content.split('\n')[:100]
                 if file_path.endswith('.md'):
                     preview = "\n".join([l for l in lines if l.strip().startswith('#')])
@@ -193,7 +180,7 @@ async def agent_stream(repo_url: str, session_id: str):
         
         Write a technical report (Markdown, Chinese).
         Focus on:
-        1. Project Purpose (Summarize from README if read)
+        1. Project Purpose
         2. Core Architecture
         3. Key Classes & Data Flow
         """
