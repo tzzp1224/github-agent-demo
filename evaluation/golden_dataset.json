@@ -1,0 +1,102 @@
+[
+    {
+        "description": "Routing: 位于 routing.py 极深处，硬切分必死",
+        "query": "Where is the function 'serialize_response' implementation used for handling response content?",
+        "answer_file": "fastapi/routing.py"
+    },
+    {
+        "description": "Routing: 同样位于 routing.py 后半部分",
+        "query": "Show me the 'get_request_handler' method implementation inside APIRoute.",
+        "answer_file": "fastapi/routing.py"
+    },
+    {
+        "description": "Dependency: 核心逻辑，位于 dependencies/utils.py 中后部",
+        "query": "I need the code for 'solve_dependencies' function.",
+        "answer_file": "fastapi/dependencies/utils.py"
+    },
+    {
+        "description": "Dependency: 极易混淆，get_dependant 在多处被引用，只需定义处",
+        "query": "Where is 'get_dependant' function defined?",
+        "answer_file": "fastapi/dependencies/utils.py"
+    },
+    {
+        "description": "OpenAPI: 位于 openapi/utils.py 深处的辅助函数",
+        "query": "Find the function 'get_flat_models_from_routes'.",
+        "answer_file": "fastapi/openapi/utils.py"
+    },
+    {
+        "description": "OpenAPI: 另一个深层函数",
+        "query": "Where is 'get_openapi_security_definitions' defined?",
+        "answer_file": "fastapi/openapi/utils.py"
+    },
+    {
+        "description": "Utils: generate_unique_id 也是一个小工具",
+        "query": "Where is the 'generate_unique_id' function?",
+        "answer_file": "fastapi/utils.py"
+    },
+    {
+        "description": "Utils: create_cloned_field 位于 utils.py 底部",
+        "query": "Show me 'create_cloned_field' implementation.",
+        "answer_file": "fastapi/utils.py"
+    },
+    {
+        "description": "Param: 区分 params.py 和 models.py",
+        "query": "Where is the 'Security' class defined for dependency injection?",
+        "answer_file": "fastapi/security/base.py"
+    },
+    {
+        "description": "Encoder: 位于 encoders.py 底部，处理 dataclass 的逻辑",
+        "query": "How does jsonable_encoder handle dataclasses? Show code.",
+        "answer_file": "fastapi/encoders.py"
+    },
+    {
+        "description": "Exception: 这是一个非常具体的处理函数",
+        "query": "Where is 'request_validation_exception_handler' defined?",
+        "answer_file": "fastapi/exception_handlers.py"
+    },
+    {
+        "description": "Background: 后台任务的具体类",
+        "query": "Where is the 'BackgroundTasks' class definition?",
+        "answer_file": "fastapi/background.py"
+    },
+    {
+        "description": "Datastructures: 这是一个继承自 Starlette 的类",
+        "query": "Where is 'UploadFile' class defined in FastAPI source?",
+        "answer_file": "fastapi/datastructures.py"
+    },
+    {
+        "description": "Response: 自定义响应类，容易被混淆",
+        "query": "Where is 'ORJSONResponse' defined?",
+        "answer_file": "fastapi/responses.py"
+    },
+    {
+        "description": "App: 位于 applications.py 底部",
+        "query": "Where is the 'include_router' method of FastAPI class?",
+        "answer_file": "fastapi/applications.py"
+    },
+    {
+        "description": "Concurrency: iterate_in_threadpool 实现",
+        "query": "Show me 'iterate_in_threadpool' function.",
+        "answer_file": "fastapi/concurrency.py"
+    },
+    {
+        "description": "Meta: 这里的 Dunder method 很难搜",
+        "query": "Where is the __call__ method of FastAPI application?",
+        "answer_file": "fastapi/applications.py"
+    },
+    {
+        "description": "TestClient: 测试客户端的具体实现",
+        "query": "Where is TestClient defined?",
+        "answer_file": "fastapi/testclient.py"
+    },
+    {
+        "description": "Typing: 辅助类型定义",
+        "query": "Where is the 'DecoratedCallable' type defined?",
+        "answer_file": "fastapi/types.py"
+    },
+    {
+        "description": "Main: 极具迷惑性，FastAPI 经常被 import 到各处",
+        "query": "Where is the actual definition of the FastAPI class?",
+        "answer_file": "fastapi/applications.py"
+    }
+]
